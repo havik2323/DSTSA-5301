@@ -1,0 +1,205 @@
+---
+title: "NYPD Shooting Dataset Analysis"
+author: "Brian Behe"
+date: "April 22, 2023"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Introduction
+
+This project performs an exploratory data analysis on the NYPD Shooting Incident Dataset (Historic), generates visualizations of trends in the data, and builds a logistic regression model to predict the fatality of a shooting incident based on features in the data (see below). The data set contains information about shooting incidents in New York City and can be found [here](https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD).
+
+## Import and Initial Exploration
+
+```{r setup, message=FALSE, warning=FALSE}
+# Load required libraries
+install.packages("tidyr")
+install.packages("dplyr")
+install.packages("ggplot2")
+install.packages("lubridate")
+install.packages("caret")
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+# Load the dataset directly from the URL
+data <- read.csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+
+# Display the first few rows
+head(data)
+#Generate Summary Statistics of the dataset
+summary(data)
+```
+## Description of Features
+
+- INCIDENT_KEY: A unique identifier for each shooting incident.
+- OCCUR_DATE: The date of the incident. This column is stored as a character and will need to be converted to a Date type for further analysis.
+- OCCUR_TIME: The time of the incident. This column is stored as a character and will need to be converted to a proper time format for further analysis.
+- BORO: The borough where the incident occurred. This column is stored as a character and will need to be converted to a factor for further analysis.
+- PRECINCT: The police precinct where the incident occurred.
+- JURISDICTION_CODE: A code indicating the jurisdiction where the incident occurred. There are missing values in this column.
+- LOCATION_DESC: A description of the location where the incident occurred. This column is stored as a character.
+- STATISTICAL_MURDER_FLAG: A flag indicating whether the incident was considered a statistical murder. This column is stored as a character.
+- PERP_AGE_GROUP: The age group of the perpetrator. This column is stored as a character and will need to be converted to a factor for further analysis.
+- PERP_SEX: The sex of the perpetrator. This column is stored as a character and will need to be converted to a factor for further analysis.
+- PERP_RACE: The race of the perpetrator. This column is stored as a character and will need to be converted to a factor for further analysis.
+- VIC_AGE_GROUP: The age group of the victim. This column is stored as a character and will need to be converted to a factor for further analysis.
+- VIC_SEX: The sex of the victim. This column is stored as a character and will need to be converted to a factor for further analysis.
+- VIC_RACE: The race of the victim. This column is stored as a character and will need to be converted to a factor for further analysis.
+- X_COORD_CD: The X-coordinate of the incident location in the New York-Long Island State Plane Coordinate System.
+- Y_COORD_CD: The Y-coordinate of the incident location in the New York-Long Island State Plane Coordinate System.
+- Latitude: The latitude of the incident location.
+- Longitude: The longitude of the incident location.
+- Lon_Lat: A combination of the longitude and latitude values. This column is stored as a character.
+
+```{r data_cleanup_processing}
+# Convert date columns to appropriate format
+data$OCCUR_DATE <- mdy(data$OCCUR_DATE)
+data$OCCUR_YEAR <- year(data$OCCUR_DATE)
+data$OCCUR_MONTH <- month(data$OCCUR_DATE)
+
+# Change appropriate variables to factors
+data$PRECINCT <- as.factor(data$PRECINCT)
+data$JURISDICTION_CODE <- as.factor(data$JURISDICTION_CODE)
+data$BORO <- as.factor(data$BORO)
+data$VIC_SEX <- as.factor(data$VIC_SEX)
+data$VIC_RACE <- as.factor(data$VIC_RACE)
+data$PERP_SEX <- as.factor(data$PERP_SEX)
+data$PERP_RACE <- as.factor(data$PERP_RACE)
+
+# Remove unnecessary columns:  not using geo location data for this analysis
+data$INCIDENT_KEY <- NULL
+data$X_COORD_CD <- NULL
+data$Y_COORD_CD <- NULL
+data$Longitude <- NULL
+data$Latitude <- NULL
+data$Lon_Lat <- NULL
+data$JURISDICTION_CODE <- NULL
+
+head(data)
+# Summary of the cleaned dataset
+summary(data)
+```
+
+## Data Analysis & Visualizations
+Here we look descriptive states of the data:  
+1) Shootings per Year  
+2) Shootings by Borough.  
+
+These are two very straightforward analytics to provide some trend analysis of the data.   
+
+In the first visualization, we find shootings by year to roughly then sharply trend downward over a decade then spike to previous highs over 2020 and beyond.  This first visualization should provoke analysis from policymakers and law enforcement to try to understand the reasons behind the trend.  Why the decrease in shootings?  What contributed to that successful reduction in gun violence?  Why the spike in 2020?  What contributed to the spike and what mitigations might we put in place to continue the original downward trend again? 
+
+The second visualization highlights quantity of shootings by borough and here we see two boroughs Bronx and Brooklyn with the most.  This might prompt reflection on where city resources (dollars, law enforcement, community programs, and policy changes etc) might best be allocated to mitigate these crimes.  
+
+```{r data_analysis}
+
+# Number of shootings per year
+shootings_per_year <- data %>%
+  group_by(OCCUR_YEAR) %>%
+  summarise(Shootings = n())
+
+# Plot shootings per year
+ggplot(shootings_per_year, aes(x = OCCUR_YEAR, y = Shootings)) +
+  geom_bar(stat = "identity", fill = "blue") + 
+  labs(title = "NYPD Shootings Per Year", x = "Year", y = "Number of Shootings")
+
+# Number of shootings by borough
+shootings_by_borough <- data %>%
+  group_by(BORO) %>%
+  summarise(Shootings = n())
+
+# Plot shootings by borough
+ggplot(shootings_by_borough, aes(x = BORO, y = Shootings, fill = BORO)) +
+  geom_bar(stat = "identity") + 
+  labs(title = "NYPD Shootings by Borough", x = "Borough",y = "Number of Shootings")
+```
+
+## Processing Missing Values
+
+```{r data_cleanup_missing_values}
+# Check for missing data
+missing_data <- sapply(data, function(x) sum(x == ""))
+missing_data
+# Remove rows with NA values
+data <- na.omit(data)
+# Remove rows with missing values in specific columns with values of na or empty string
+data <- data %>%
+  filter(!is.na(PERP_SEX) & PERP_SEX != "",
+         !is.na(PERP_RACE) & PERP_RACE != "",
+         !is.na(VIC_SEX) & VIC_SEX != "",
+         !is.na(VIC_RACE) & VIC_RACE != "")
+```
+## Missing Value Analysis
+
+We have strategies for handling missing values from imputation to removing rows with missing data entirely from the data set. In this instance, I chose to remove rows with missing values from columns used in a Logistic Regression Analysis below.  I chose to remove rows with missing values from columns listed below rather than utilize an imputation strategy out of concern that bias introduced by such a strategy could have real world policy implications, particularly given the nature of this data set.  Of course, removing rows also introduces distribution skew and may result in under-representation of examples in the dataset affecting model performance on real world data.
+
+The challenge is to understand why the values are missing (missing at random, missing completely at random, missing not at random) and while there are techniques to assess the type of missingness in the data (for example running an MCAR test), this isn't necessarily definitive.  For brevity, let's assume missing completely at random and drop examples with missing values, and acknowledge this bias introduced into the analyssis in the conclusion.  
+
+## Logistic Regression Model
+
+Here we look to try to predict fatality of a shooting based on various dimensions of the data
+```{r logistic_regression, message=FALSE, warning=FALSE}
+# Load required libraries
+library(tidyr)
+library(caret)
+
+# Preprocess data for modeling
+ model_data <- data %>%
+   select(STATISTICAL_MURDER_FLAG, VIC_AGE_GROUP, BORO, PERP_RACE, PERP_SEX) %>%
+   filter(!is.na(STATISTICAL_MURDER_FLAG) & !is.na(VIC_AGE_GROUP) & !is.na(PERP_SEX) & !is.na(PERP_RACE)) %>%
+   mutate(STATISTICAL_MURDER_FLAG = as.factor(STATISTICAL_MURDER_FLAG))
+
+# Split the data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(model_data$STATISTICAL_MURDER_FLAG, p = 0.8, list = FALSE)
+train_data <- model_data[train_index, ]
+test_data <- model_data[-train_index, ]
+
+# Fit the logistic regression model
+logistic_model <- glm(STATISTICAL_MURDER_FLAG ~ BORO + VIC_AGE_GROUP + PERP_SEX + PERP_RACE,
+                      data = train_data, family = binomial(link = "logit"))
+
+# Model summary
+summary(logistic_model)
+
+#Predict on test data 
+predictions <- predict(logistic_model, newdata = test_data, type="response")
+predicted_output <- ifelse(predictions > 0.5, "1", "0")
+confusion_matrix_output <- table(Predicted = predicted_output, Actual = test_data$STATISTICAL_MURDER_FLAG)
+ 
+# Calculate accuracy
+accuracy <- sum(diag(confusion_matrix_output)) / sum(confusion_matrix_output)
+paste("Accuracy:", round(accuracy * 100, 2), "%")
+```
+
+## Conclusion
+
+The model took into account several factors, including the presence of a murder flag, borough, victim age group, perpetrator sex, and perpetrator race. By employing an 80/20 train-test split and excluding rows with missing values, the model achieved an accuracy rate of 80.13%.
+
+Model Features:
+
+The logistic regression model was designed to predict fatalities based on the following features:
+
+{STATISTICAL_MURDER_FLAG, BORO. VIC_AGE_GROUP, PERP_SEX, PERP_RACE}
+
+Model Performance:
+To assess the model's performance, the data set was split into training and testing sets using a standard 80/20 ratio. The logistic regression model was trained on the 80% training data set and then used to predict fatalities on the 20% test data set.
+
+The model predictions were transformed into binary classes with predicted fatalities being labeled as "1" and non-fatalities as "0".  A confusion matrix was constructed by comparing the predicted classes against the actual data for the test dataset.
+
+Accuracy Calculation:
+The accuracy of the model was calculated by dividing the sum of correctly predicted fatalities and non-fatalities by the total number of predictions. This resulted in an accuracy rate of 80.13%.
+
+Conclusion:
+The logistic regression model trained here demonstrated a promising accuracy rate of 80.13% in predicting fatalities based on the selected features. This suggests that the model has the potential to be a valuable tool in analyzing and understanding crime patterns/gun violence patterns in New York City. Refinement of the model, along with the inclusion of additional factors, could lead to more accurate predictions and a deeper understanding of the factors that contribute to fatal incidents.
+
+## A note on bias:
+
+1. Outlier Analysis: A more robust analysis would have included evaluating outliers.  Logistic regression is sensitive to the presence of outliers because it estimates the probability of a certain outcome (usually coded as 0 or 1) based on the values of predictor variables. Outliers can influence the estimates of the regression coefficients, which in turn can affect the predicted probabilities of the outcomes.  In this case ~80% accuracy performance is fairly good.  Removing outliers may improve the analysis.
+
+2.  Missing Values:  As discussed, the strategy for handling outliers was to remove rows with missing values.  If the missing data was missing completely at random, this strategy is fine.  If it was missing at random or missing not at random, imputation would be the preferred strategy.  
+
+3. Personal Bias: I would not suggest that any personal feelings on this subject matter influenced this specific analysis however as noted in class personal bias is real and good data science practitioners should be aware of these when beginning any type of analysis.  
